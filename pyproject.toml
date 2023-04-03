@@ -1,0 +1,22 @@
+[tool.poetry]
+name = "cython-cc"
+version = "0.1.0"
+description = "User Cython Encry Source Code"
+authors = ["panla <pankla@163.com>"]
+license = "MIT"
+readme = "README.md"
+packages = [{include = "cython_tools"}]
+
+[tool.poetry.dependencies]
+python = "^3.8"
+
+[[tool.poetry.source]]
+name = "aliyun"
+url = "https://mirrors.aliyun.com/pypi/simple"
+
+[tool.poetry.group.dev.dependencies]
+Cython = "^0.29.34"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

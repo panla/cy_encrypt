@@ -1,0 +1,35 @@
+# common
+/.idea
+/.vscode
+
+*.DS_Store
+*.pyc
+
+/bak
+/tmp
+/temp
+/temp_*
+
+# project
+/resources
+/resource
+/certs
+/cert
+/configs
+/confs
+/conf
+
+/dist
+/dist_*
+/dist-*
+/build
+/install
+
+/in
+/out
+
+/logs
+/RunLogs
+
+/*.so
+/*.spec
