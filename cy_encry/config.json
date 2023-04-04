@@ -1,8 +1,0 @@
-{
-    "source_dir": "/extend/repos/project_demo/pyside6_demo",
-    "need_compile_dirs": [
-        "apps",
-        "apps/threads",
-        "apps/views"
-    ]
-}

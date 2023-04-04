@@ -1,14 +1,23 @@
 [tool.poetry]
-name = "cython-cc"
+name = "cy-encrypt"
 version = "0.1.0"
-description = "User Cython Encry Source Code"
+description = "Use Cython Encrypt Source Code"
 authors = ["panla <pankla@163.com>"]
 license = "MIT"
 readme = "README.md"
-packages = [{include = "cython_tools"}]
+homepage = ""
+repository = "https://gitee.com/pankla/cy_encrypt.git"
+documentation = ""
+keywords = ["Cython", "DDL", "cy_encrypt", "CythonEncrypt"]
+packages = [
+    {include = "cy_encrypt"}
+]
+include = ["CHANGELOG.md", "LICENSE", "README.md"]
 
 [tool.poetry.dependencies]
 python = "^3.8"
+Cython = "^0.29.34"
+click = "*"
 
 [[tool.poetry.source]]
 name = "aliyun"
@@ -18,5 +27,8 @@ url = "https://mirrors.aliyun.com/pypi/simple"
 Cython = "^0.29.34"
 
 [build-system]
-requires = ["poetry-core"]
+requires = ["poetry-core", "setuptools"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.scripts]
+cy_encrypt = "cy_encrypt.cli:main"
