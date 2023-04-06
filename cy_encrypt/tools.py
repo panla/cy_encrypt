@@ -6,7 +6,7 @@ import traceback
 from datetime import datetime
 from pathlib import Path
 from setuptools import setup
-from typing import List, Tuple
+from typing import Tuple
 
 from Cython.Build import cythonize
 

@@ -16,9 +16,11 @@ from cy_encrypt.tools import Operator
 )
 @click.pass_context
 def cli(ctx: Context, config):
+    """cli"""
 
     ctx.ensure_object(dict)
     ctx.obj["config_file"] = config
+
 
 @cli.command(help="Execute.")
 @click.pass_context
