@@ -6,7 +6,7 @@ import traceback
 from datetime import datetime
 from pathlib import Path
 from setuptools import setup
-from typing import Tuple
+from typing import Tuple, List
 
 from Cython.Build import cythonize
 
@@ -35,7 +35,7 @@ class Operator:
         # 源文件所在文件路径夹
         self.source_dir = Path('')
         # 需要编译的文件夹
-        self.need_compile_dirs = list()
+        self.need_compile_paths = list()
 
         # 目标文件夹路径
         self.target_dir = Path('')
@@ -60,7 +60,7 @@ class Operator:
                 params = json.load(f)
 
                 source_dir = params.get('source_dir')
-                need_compile_dirs = params.get('need_compile_dirs', list())
+                need_compile_paths = params.get('need_compile_paths', list())
 
             if not source_dir:
                 return False, f'{self.source_dir} is not exist!'
@@ -69,12 +69,12 @@ class Operator:
             if not self.source_dir.is_dir():
                 return False, f'{self.source_dir} is not a dir!'
 
-            if not need_compile_dirs:
-                return False, f'{need_compile_dirs} is not exist!'
+            if not need_compile_paths:
+                return False, f'{need_compile_paths} is not exist!'
 
-            self.need_compile_dirs = need_compile_dirs
+            self.need_compile_paths = need_compile_paths
 
-            now = datetime.now().strftime('%Y-%m-%s-%H-%M-%S')
+            now = datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
             self.target_dir = self.source_dir.parent.joinpath(self.source_dir.name + f'_target_{now}')
             self.c_source_dir = self.source_dir.parent.joinpath(self.source_dir.name + f'_c_source_{now}')
 
@@ -90,43 +90,55 @@ class Operator:
         if not self.target_dir.is_dir():
             shutil.copytree(self.source_dir, self.target_dir)
 
-        for one_dir in self.need_compile_dirs:
-            abs_dir = os.path.join(self.target_dir, one_dir)
-            abs_dir_p = Path(abs_dir)
+        for path in self.need_compile_paths:
+            abs_path_p = self.target_dir.joinpath(path)
 
             lis = list()
 
-            for name in os.listdir(abs_dir):
-                if str(name) in self.exclude_compile_rules:
-                    continue
+            if abs_path_p.is_dir():
+                for name in os.listdir(abs_path_p):
+                    name_str = str(name)
+                    if name_str in self.exclude_compile_rules:
+                        continue
 
-                if str(name).endswith(self.need_compile_rules):
-                    lis.append(name)
+                    if name_str.endswith(self.need_compile_rules):
+                        lis.append(name_str)
+                self.need_compile_map[abs_path_p] = lis
+            elif abs_path_p.is_file():
+                # 项目根目录
+                lis.append(path)
+                self.need_compile_map[self.target_dir] = lis
 
-            self.need_compile_map[abs_dir_p] = lis
-
-    def remove(self, parent_dir: Path):
+    def remove(self, parent_dir: Path, names: List[str]):
         """清理，转移"""
 
-        parent_dir_str = parent_dir.name
-        c_source_parent_dir = self.c_source_dir.joinpath(parent_dir_str)
+        if parent_dir.name != self.target_dir.name:
+            c_source_parent_dir = self.c_source_dir.joinpath(parent_dir.name)
+        else:
+            c_source_parent_dir = self.c_source_dir.joinpath('')
         c_source_parent_dir.mkdir(parents=True, exist_ok=True)
         target_parent_dir = self.target_dir.joinpath(parent_dir)
         temp_build_dir = parent_dir.joinpath('build')
 
-        for name in os.listdir(parent_dir):
-            # 转移 C 文件
-            name = str(name)
-            if name.endswith('.c'):
-                shutil.move(parent_dir.joinpath(name), c_source_parent_dir.joinpath(name))
+        for name in names:
 
-            # 转移并重命名动态链接库
-            if name.endswith('.so') or name.endswith('.pyd'):
-                new_filename = re.sub(r'(.*)\..*\.(.*)', r'\1.\2', name)
-                shutil.move(parent_dir.joinpath(name), target_parent_dir.joinpath(new_filename))
+            # 转移 C 文件
+            c_name = name.replace('.pyx', '.c').replace('.py', '.c')
+            if os.path.isfile(c_name):
+                shutil.move(parent_dir.joinpath(c_name), c_source_parent_dir.joinpath(c_name))
 
             if name.endswith(self.need_compile_rules):
                 os.remove(parent_dir.joinpath(name))
+
+        for name in os.listdir(parent_dir):
+            name_str = str(name)
+            # 转移并重命名动态链接库
+            if name_str.endswith(('.so', '.pyd')):
+                new_filename = re.sub(r'(.*)\..*\.(.*)', r'\1.\2', name_str)
+                shutil.move(parent_dir.joinpath(name_str), target_parent_dir.joinpath(new_filename))
+
+            if '__pycache__' in name_str:
+                shutil.rmtree('__pycache__')
 
         # 删除临时 build 文件夹
         if temp_build_dir.is_dir():
@@ -134,11 +146,9 @@ class Operator:
 
     def compile(self):
 
-        for abs_dir, names in self.need_compile_map.items():
+        for abs_path_p, names in self.need_compile_map.items():
             # 切换至目录
-            p = Path(abs_dir)
-
-            os.chdir(p)
+            os.chdir(abs_path_p)
 
             # 执行
             setup(
@@ -146,7 +156,7 @@ class Operator:
                 script_args=['build_ext', '--inplace']
             )
 
-            self.remove(abs_dir)
+            self.remove(abs_path_p, names)
 
             os.chdir(self.target_dir)
 
