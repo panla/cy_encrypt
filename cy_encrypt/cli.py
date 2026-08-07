@@ -1,8 +1,14 @@
-import click
-from click import Context
+"""
+cy_encrypt.cli
+~~~~~~~~~~~~~~
 
+命令行入口。
+"""
+
+import click
+
+from cy_encrypt.tools import run
 from cy_encrypt.version import __version__
-from cy_encrypt.tools import Operator
 
 
 @click.group(context_settings={"help_option_names": ["-h", "--help"]})
@@ -12,26 +18,23 @@ from cy_encrypt.tools import Operator
     "--config",
     default="config.json",
     show_default=True,
-    help="Config file.",
+    help="配置文件路径",
 )
 @click.pass_context
-def cli(ctx: Context, config: str):
-    """cli"""
-
+def cli(ctx: click.Context, config: str) -> None:
+    """cy_encrypt - Python 源码编译加密工具"""
     ctx.ensure_object(dict)
-    ctx.obj["config_file"] = config
+    ctx.obj["config"] = config
 
 
-@cli.command(help="Execute.")
+@cli.command(help="执行编译加密流程")
 @click.pass_context
-def execute(ctx: Context):
-    """执行"""
-
-    op = Operator(ctx.obj["config_file"])
-    op.execute()
+def execute(ctx: click.Context) -> None:
+    """执行完整的编译加密流程"""
+    run(ctx.obj["config"])
 
 
-def main():
+def main() -> None:
     cli()
 
 
