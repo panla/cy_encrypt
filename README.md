@@ -25,10 +25,14 @@ config.json example
 ```json
 {
     "source_dir": "/home/user/project/example",
-    "need_compile_dirs": [
+    "skip_dirs": [
         "apps",
         "apps/threads",
         "apps/views"
+    ],
+    "skip_cp_dirs": [
+        ".git",
+        ".idea"
     ]
 }
 ```
@@ -59,9 +63,9 @@ cy_encrypt -c ./config.json execute
 
 Then Will Auto Process `/home/user/project/example`
 
-cp `source_dir` to `source_dir_target_{now}`
+cp `source_dir` to `{source_dir}_{now}`
 
-Generate C language source code file to `source_dir_c_source_{now}`
+Compile `.py` files to dynamically linked libraries (`.so`/`.pyd`), keeping the relative path unchanged
 
 ## File
 

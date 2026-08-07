@@ -1,12 +1,11 @@
 import json
 import os
-import re
 import shutil
 import traceback
 from datetime import datetime
 from pathlib import Path
 from setuptools import setup
-from typing import Tuple, List
+from typing import Tuple, List, Dict
 
 from Cython.Build import cythonize
 
@@ -26,24 +25,47 @@ class Operator:
             config_path (str): 配置文件路径
         """
 
-        self.need_compile_rules = ('.py', 'pyx')
-        self.exclude_compile_rules = ['__init__.py', '__init__.pyx']
+        self.need_compile_rules = '.py'
+        self.exclude_compile_rules = ['__init__.py']
 
         self.config_path = Path(config_path)
 
         # 来自配置文件
-        # 源文件所在文件路径夹
+        # 源文件所在文件夹路径
         self.source_dir = Path('')
-        # 需要编译的文件夹
-        self.need_compile_paths = list()
+        # 跳过不编译的文件夹（相对 source_dir 的路径）
+        self.skip_dirs = list()
+        # 复制时跳过的文件夹/文件（相对 source_dir 的路径）
+        self.skip_cp_dirs = list()
 
         # 目标文件夹路径
         self.target_dir = Path('')
-        # 中间生成的 C 文件文件夹路径
-        self.c_source_dir = Path('')
 
-        # 需要编译的源文件 父路径与本文件的 字典
-        self.need_compile_map = dict()
+        # 需要编译的文件 父路径 -> [文件名列表]
+        self.need_compile_map: Dict[Path, List[str]] = dict()
+
+    @staticmethod
+    def _rel_match(rel_path: Path, base_list: List[str]) -> bool:
+        """判断相对路径是否匹配 base_list 中的某个路径（含其自身及其子路径）
+
+        Args:
+            rel_path (Path): 相对 source_dir 的路径
+            base_list (List[str]): 需要匹配的路径列表
+
+        Returns:
+            bool: 是否匹配
+        """
+
+        for base in base_list:
+            base_path = Path(base)
+            if rel_path == base_path:
+                return True
+            try:
+                rel_path.relative_to(base_path)
+                return True
+            except ValueError:
+                pass
+        return False
 
     def init(self) -> Tuple[bool, str]:
         """初始化解析配置文件
@@ -60,111 +82,137 @@ class Operator:
                 params = json.load(f)
 
                 source_dir = params.get('source_dir')
-                need_compile_paths = params.get('need_compile_paths', list())
+                skip_dirs = params.get('skip_dirs', list())
+                skip_cp_dirs = params.get('skip_cp_dirs', list())
 
             if not source_dir:
-                return False, f'{self.source_dir} is not exist!'
+                return False, f'{source_dir} is not exist!'
             self.source_dir = Path(source_dir)
 
             if not self.source_dir.is_dir():
                 return False, f'{self.source_dir} is not a dir!'
 
-            if not need_compile_paths:
-                return False, f'{need_compile_paths} is not exist!'
+            self.skip_dirs = skip_dirs
+            self.skip_cp_dirs = skip_cp_dirs
 
-            self.need_compile_paths = need_compile_paths
-
-            now = datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
-            self.target_dir = self.source_dir.parent.joinpath(self.source_dir.name + f'_target_{now}')
-            self.c_source_dir = self.source_dir.parent.joinpath(self.source_dir.name + f'_c_source_{now}')
+            now = datetime.now().strftime('%Y_%m_%d_%H_%M_%S')
+            self.target_dir = self.source_dir.parent.joinpath(self.source_dir.name + f'_{now}')
 
             return True, ''
         except Exception as exc:
             print(traceback.format_exc())
             return False, str(exc)
 
-    def search_files(self):
-        """搜索，查找符合处理条件的源文件，保存至列表
+    def copy_files(self):
+        """复制 source_dir 到 target_dir，保持相对路径不变，跳过 skip_cp_dirs
         """
 
-        if not self.target_dir.is_dir():
-            shutil.copytree(self.source_dir, self.target_dir)
+        if self.target_dir.is_dir():
+            shutil.rmtree(self.target_dir)
+        self.target_dir.mkdir(parents=True, exist_ok=True)
 
-        for path in self.need_compile_paths:
-            abs_path_p = self.target_dir.joinpath(path)
+        for root, dirs, files in os.walk(self.source_dir):
+            root_path = Path(root)
+            rel_root = root_path.relative_to(self.source_dir)
 
-            lis = list()
+            # 过滤掉 skip_cp_dirs 中的目录
+            dirs[:] = [
+                d for d in dirs
+                if not self._rel_match(rel_root / d, self.skip_cp_dirs)
+            ]
 
-            if abs_path_p.is_dir():
-                for name in os.listdir(abs_path_p):
-                    name_str = str(name)
-                    if name_str in self.exclude_compile_rules:
-                        continue
+            for file in files:
+                rel_file = rel_root / file
+                # 过滤掉 skip_cp_dirs 中的文件
+                if self._rel_match(rel_file, self.skip_cp_dirs):
+                    continue
 
-                    if name_str.endswith(self.need_compile_rules):
-                        lis.append(name_str)
-                self.need_compile_map[abs_path_p] = lis
-            elif abs_path_p.is_file():
-                # 项目根目录
-                lis.append(path)
-                self.need_compile_map[self.target_dir] = lis
+                src = root_path / file
+                dst = self.target_dir / rel_file
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, dst)
+
+    def search_files(self):
+        """搜索 target_dir 下需要编译的 .py 文件，按父目录分组保存
+        """
+
+        for root, dirs, files in os.walk(self.target_dir):
+            root_path = Path(root)
+            rel_root = root_path.relative_to(self.target_dir)
+
+            # 过滤掉 skip_dirs 中的目录
+            dirs[:] = [
+                d for d in dirs
+                if not self._rel_match(rel_root / d, self.skip_dirs)
+            ]
+
+            compile_names = list()
+            for file in files:
+                # 只编译 .py 文件
+                if not file.endswith(self.need_compile_rules):
+                    continue
+                # 排除不需要编译的文件
+                if file in self.exclude_compile_rules:
+                    continue
+                # 排除 skip_dirs 中的文件
+                if self._rel_match(rel_root / file, self.skip_dirs):
+                    continue
+                compile_names.append(file)
+
+            if compile_names:
+                self.need_compile_map[root_path] = compile_names
 
     def remove(self, parent_dir: Path, names: List[str]):
-        """清理，转移"""
-
-        if parent_dir.name != self.target_dir.name:
-            c_source_parent_dir = self.c_source_dir.joinpath(parent_dir.name)
-        else:
-            c_source_parent_dir = self.c_source_dir.joinpath('')
-        c_source_parent_dir.mkdir(parents=True, exist_ok=True)
-        target_parent_dir = self.target_dir.joinpath(parent_dir)
-        temp_build_dir = parent_dir.joinpath('build')
+        """清理编译产物：删除 .py、.c、build 和 __pycache__"""
 
         for name in names:
+            # 删除中间生成的 C 文件
+            c_name = name.replace('.py', '.c')
+            c_file = parent_dir / c_name
+            if c_file.is_file():
+                os.remove(c_file)
 
-            # 转移 C 文件
-            c_name = name.replace('.pyx', '.c').replace('.py', '.c')
-            if os.path.isfile(c_name):
-                shutil.move(parent_dir.joinpath(c_name), c_source_parent_dir.joinpath(c_name))
-
-            if name.endswith(self.need_compile_rules):
-                os.remove(parent_dir.joinpath(name))
-
-        for name in os.listdir(parent_dir):
-            name_str = str(name)
-            # 转移并重命名动态链接库
-            if name_str.endswith(('.so', '.pyd')):
-                new_filename = re.sub(r'(.*)\..*\.(.*)', r'\1.\2', name_str)
-                shutil.move(parent_dir.joinpath(name_str), target_parent_dir.joinpath(new_filename))
-
-            if '__pycache__' in name_str:
-                shutil.rmtree('__pycache__')
+            # 删除编译后的源文件
+            os.remove(parent_dir / name)
 
         # 删除临时 build 文件夹
-        if temp_build_dir.is_dir():
-            shutil.rmtree(temp_build_dir)
+        build_dir = parent_dir / 'build'
+        if build_dir.is_dir():
+            shutil.rmtree(build_dir)
+
+        # 删除 __pycache__ 文件夹
+        pycache_dir = parent_dir / '__pycache__'
+        if pycache_dir.is_dir():
+            shutil.rmtree(pycache_dir)
 
     def compile(self):
+        """编译 .py 文件为动态链接库，保持相对路径不变"""
 
         for abs_path_p, names in self.need_compile_map.items():
-            # 切换至目录
+            # 切换至该目录编译，保证编译出的模块导入路径正确
             os.chdir(abs_path_p)
-
-            # 执行
-            setup(
-                ext_modules=cythonize(names, quiet=True, compiler_directives=COMPILER_DIRECTIVES),
-                script_args=['build_ext', '--inplace']
-            )
+            try:
+                setup(
+                    ext_modules=cythonize(
+                        names,
+                        quiet=True,
+                        compiler_directives=COMPILER_DIRECTIVES
+                    ),
+                    script_args=['build_ext', '--inplace']
+                )
+            finally:
+                # 编译完成后切回目标目录
+                os.chdir(self.target_dir)
 
             self.remove(abs_path_p, names)
-
-            os.chdir(self.target_dir)
 
     def execute(self):
 
         success, msg = self.init()
         if not success:
             raise Exception(msg)
+
+        self.copy_files()
 
         self.search_files()
 

@@ -30,12 +30,14 @@ source = { editable = "." }
 dependencies = [
     { name = "click" },
     { name = "cython" },
+    { name = "setuptools" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "click", specifier = ">=8.0,<9.0" },
     { name = "cython", specifier = ">=3.1.0,<3.2.0" },
+    { name = "setuptools", specifier = ">=68.0" },
 ]
 
 [[package]]
@@ -65,4 +67,13 @@ wheels = [
     { url = "https://pypi.tuna.tsinghua.edu.cn/packages/3a/9d/2c5088d4c2c9d39692c5aca52fad35ade256d871ebecde61171acb3925fd/cython-3.1.8-cp313-cp313-win32.whl", hash = "sha256:34eb6dfaa0786a7477aaac86696f26efc052cda586d4f97a9d1d2c6b2ff6d26d", size = 2477612, upload-time = "2026-01-03T18:31:59.725Z" },
     { url = "https://pypi.tuna.tsinghua.edu.cn/packages/00/b0/4cb436aab34f082454cf38cd21ed64021450fe51d1006aecaba62b6ac2c1/cython-3.1.8-cp313-cp313-win_amd64.whl", hash = "sha256:fc3cbaee08d424d2852c7b134ca432501792f67021b73a029cf2f13fb6172423", size = 2698217, upload-time = "2026-01-03T18:32:01.635Z" },
     { url = "https://pypi.tuna.tsinghua.edu.cn/packages/5b/c7/b81516c9bb5da55d327b3cf2f33f39217719e73b524ab49a4028e18b6a66/cython-3.1.8-py3-none-any.whl", hash = "sha256:f36368c1d7ea4003c52e9e93f3556074a631a6482f8a32e781cb073e211e4df9", size = 1223843, upload-time = "2026-01-03T18:30:22.229Z" },
+]
+
+[[package]]
+name = "setuptools"
+version = "83.0.0"
+source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
+sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/34/26/f5d29e25ffdb535afef2d35cdb55b325298f96debd670da4c325e08d70f4/setuptools-83.0.0.tar.gz", hash = "sha256:025bccbbf0fa05b6192bc64ae1e7b16e001fd6d6d4d5de03c97b1c1ade523bef", size = 1154254, upload-time = "2026-07-04T15:31:22.699Z" }
+wheels = [
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/5d/40/e1e72872c6354b306daef1703549e8e83b4d43cfea356311bf722a043752/setuptools-83.0.0-py3-none-any.whl", hash = "sha256:29b23c360f22f414dc7336bb39178cc7bcbf6021ed2733cde173f09dba19abb3", size = 1008090, upload-time = "2026-07-04T15:31:20.885Z" },
 ]
