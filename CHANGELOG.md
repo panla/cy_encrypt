@@ -9,6 +9,7 @@
 - 2026-08-07
   - Update: 升级到0.2.0, 包括Python版本,Cython版本, 改为uv
   - Update: 更新编译逻辑
+  - Update: 更新日志和修复bug
 
 ## 2023
 

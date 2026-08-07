@@ -6,11 +6,12 @@ cy_encrypt.tools
 
 流程:
     1. 将 source_dir 复制到 source_dir_YYYY_MM_DD_HH_MM_SS (skip_cp_dirs 不复制)
-    2. 在 target_dir 中逐文件夹、逐文件筛选需要编译的 .py 文件
-    3. 按目录分组编译，编译后删除中间产物 (.c / build / __pycache__ / 原 .py)
+    2. 在 target_dir 中逐文件夹、逐文件筛选需要编译的源文件 (.py / .pyx / .pyw)
+    3. 按目录分组编译, 编译后删除中间产物 (.c / build / __pycache__ / 原源文件)
 """
 
 import json
+import logging
 import os
 import shutil
 from datetime import datetime
@@ -20,11 +21,17 @@ from typing import Any
 from Cython.Build import cythonize
 from setuptools import setup
 
+# 日志
+logger = logging.getLogger(__name__)
+
 # Cython 编译参数
 COMPILER_DIRECTIVES: dict[str, Any] = {
     "language_level": 3,
     "always_allow_keywords": True,
 }
+
+# Cython 可编译的源文件后缀 (.pyx 为 Cython 源文件, .pyw 为 Python 窗口脚本)
+COMPILE_SUFFIXES: tuple[str, ...] = (".py", ".pyx", ".pyw")
 
 
 # ---------------------------------------------------------------------------
@@ -114,7 +121,7 @@ def _need_compile(rel_path: PurePosixPath, skip_dirs: list[str]) -> bool:
     """判断文件是否需要编译
 
     规则:
-        - 仅 .py 文件
+        - 后缀在 COMPILE_SUFFIXES 中 (.py / .pyx / .pyw)
         - 排除 __init__.py
         - 排除 skip_dirs 中的路径
 
@@ -125,7 +132,7 @@ def _need_compile(rel_path: PurePosixPath, skip_dirs: list[str]) -> bool:
     Returns:
         True 表示需要编译
     """
-    if rel_path.suffix != ".py":
+    if rel_path.suffix not in COMPILE_SUFFIXES:
         return False
     if rel_path.name == "__init__.py":
         return False
@@ -172,7 +179,7 @@ def copy_source_dir(config: Config) -> None:
 # 2.2 扫描需编译文件
 # ---------------------------------------------------------------------------
 def find_compile_files(config: Config) -> list[str]:
-    """在 target_dir 中扫描需要编译的 .py 文件
+    """在 target_dir 中扫描需要编译的源文件 (.py / .pyx / .pyw)
 
     Args:
         config: 编译配置
@@ -204,7 +211,7 @@ def find_compile_files(config: Config) -> list[str]:
 # 2.3 编译 + 清理
 # ---------------------------------------------------------------------------
 def compile_all(config: Config, py_files: list[str]) -> None:
-    """编译 target_dir 中所有需要编译的 .py 文件
+    """编译 target_dir 中所有需要编译的源文件
 
     使用 os.chdir 切换到 target_dir 执行编译。
     target_dir 是项目根目录 (无 __init__.py), Cython 不会添加包名前缀,
@@ -237,7 +244,7 @@ def cleanup(config: Config, py_files: list[str]) -> None:
 
     清理内容:
         - .c 文件 (Cython 中间产物)
-        - 原始 .py 文件 (已编译为 .so)
+        - 原始源文件 (已编译为 .so)
         - target_dir 下的 build 目录
         - 所有 __pycache__ 目录
 
@@ -245,7 +252,7 @@ def cleanup(config: Config, py_files: list[str]) -> None:
         config: 编译配置
         py_files: 已编译的相对路径文件列表
     """
-    # 删除每个已编译文件对应的 .c 和 .py
+    # 删除每个已编译文件对应的 .c 和源文件
     for rel_path_str in py_files:
         rel_path = Path(rel_path_str)
         abs_path = config.target_dir / rel_path
@@ -255,11 +262,12 @@ def cleanup(config: Config, py_files: list[str]) -> None:
         if c_file.is_file():
             c_file.unlink()
 
-        # 删除原始 .py 文件
+        # 删除原始源文件 (.py / .pyx / .pyw)
         if abs_path.is_file():
             abs_path.unlink()
 
     # 删除 target_dir 下的 build 目录
+    # 使用 Path 的 "/" 运算符拼接, 在 Windows/Linux/macOS 上均跨平台安全
     build_dir = config.target_dir / "build"
     if build_dir.is_dir():
         shutil.rmtree(build_dir)
@@ -281,31 +289,31 @@ def run(config_path: str) -> None:
     """
     # 加载配置
     config = load_config(Path(config_path))
-    print(f"[1/4] 配置加载完成")
-    print(f"      源目录: {config.source_dir}")
-    print(f"      目标目录: {config.target_dir}")
+    logger.info("[1/4] 配置加载完成")
+    logger.info("      源目录: %s", config.source_dir)
+    logger.info("      目标目录: %s", config.target_dir)
 
     # 2.1 复制
     copy_source_dir(config)
-    print(f"[2/4] 目录复制完成")
+    logger.info("[2/4] 目录复制完成")
 
     # 2.2 扫描需编译文件
     py_files = find_compile_files(config)
-    print(f"[3/4] 扫描完成, 共 {len(py_files)} 个文件待编译")
+    logger.info("[3/4] 扫描完成, 共 %d 个文件待编译", len(py_files))
     for f in py_files:
-        print(f"      - {f}")
+        logger.info("      - %s", f)
 
     if not py_files:
-        print("无需编译的文件")
+        logger.info("无需编译的文件")
         return
 
     # 2.3 编译
-    print(f"[4/4] 编译中...")
+    logger.info("[4/4] 编译中...")
     compile_all(config, py_files)
-    print("      编译完成")
+    logger.info("      编译完成")
 
     # 2.4 清理中间产物
     cleanup(config, py_files)
-    print("      清理完成")
+    logger.info("      清理完成")
 
-    print("完成!")
+    logger.info("完成!")

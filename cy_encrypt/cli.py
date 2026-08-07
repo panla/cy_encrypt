@@ -5,10 +5,16 @@ cy_encrypt.cli
 命令行入口。
 """
 
+import logging
+
 import click
 
 from cy_encrypt.tools import run
 from cy_encrypt.version import __version__
+
+# 配置日志 (默认输出格式)
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 @click.group(context_settings={"help_option_names": ["-h", "--help"]})
