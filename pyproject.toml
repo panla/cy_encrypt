@@ -32,7 +32,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.uv]
-package = true
+package = false
 
 [[tool.uv.index]]
 name = "mirror"
