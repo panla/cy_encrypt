@@ -7,15 +7,15 @@
 ## Install
 
 ```bash
-# in a poetry env, install requirements
-poetry install
+# in a uv env, install requirements
+uv sync
 
 # build package
-poetry build
+uv build
 
 # install
 cd dist
-pip install ./cy_encrypt-0.1.0-py3-none-any.whl
+pip install ./cy_encrypt-0.2.0-py3-none-any.whl
 ```
 
 ## usage

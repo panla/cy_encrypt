@@ -14,7 +14,7 @@ from Cython.Build import cythonize
 COMPILER_DIRECTIVES = {
     'language_level': 3,
     'always_allow_keywords': True,
-    'annotation_typing': False
+    # 'annotation_typing': False  # Cython 3.x 已移除该指令，注释保留
 }
 
 

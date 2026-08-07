@@ -2,10 +2,10 @@ py_warn = PYTHONDEVMODE=1
 
 
 up:
-	@poetry update
+	@uv lock
 
 deps:
-	@poetry install
+	@uv sync
 
 build: deps
-	@poetry build
+	@uv build
