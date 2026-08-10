@@ -2,23 +2,29 @@
 
 ## Introduction
 
-利用 Cython Python 源代码 转换为动态链接库
+利用 Cython 把 Python 源代码(.py, .pyw, .pyx) 转换为动态链接库
+
+以实现保护源代码的作用
 
 ## Install
 
 ```bash
+
+# create venv
+uv venv --python 3.12
+
 # in a uv env, install requirements
 uv sync
 
-# build package
+# build package dist
 uv build
 
 # install
 cd dist
-pip install ./cy_encrypt-0.2.0-py3-none-any.whl
+pip install ./cy_encrypt-0.3.0-py3-none-any.whl
 ```
 
-## usage
+## Usage
 
 config.json example
 
@@ -42,17 +48,17 @@ example project structure tree
 ```text
 .
 ├── apps
-│   ├── const.py
-│   ├── log.py
-│   ├── setting.py
-│   ├── signal.py
-│   ├── threads
-│   │   ├── main.py
-│   │   └── setting.py
-│   ├── views
-│   │   ├── main.py
-│   │   └── setting.py
-│   └── work.py
+│         ├── const.py
+│         ├── log.py
+│         ├── setting.py
+│         ├── signal.py
+│         ├── threads
+│         │         ├── main.py
+│         │         └── setting.py
+│         ├── views
+│         │         ├── main.py
+│         │         └── setting.py
+│         └── work.py
 ```
 
 command

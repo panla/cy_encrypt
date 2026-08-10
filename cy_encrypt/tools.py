@@ -2,12 +2,15 @@
 cy_encrypt.tools
 ~~~~~~~~~~~~~~~~
 
-将 Python 源码编译为 Cython 动态库 (.so/.pyd)。
+Compile Python source code into Cython dynamic libraries (``.so`` / ``.pyd``).
 
-流程:
-    1. 将 source_dir 复制到 source_dir_YYYY_MM_DD_HH_MM_SS (skip_cp_dirs 不复制)
-    2. 在 target_dir 中逐文件夹、逐文件筛选需要编译的源文件 (.py / .pyx / .pyw)
-    3. 按目录分组编译, 编译后删除中间产物 (.c / build / __pycache__ / 原源文件)
+Workflow:
+    1. Copy ``source_dir`` to ``source_dir_YYYY_MM_DD_HH_MM_SS``
+       (directories listed in ``skip_cp_dirs`` are not copied).
+    2. Walk through ``target_dir`` and select files that need to be compiled
+       (``.py`` / ``.pyx`` / ``.pyw``).
+    3. Compile the selected files, then remove intermediate artifacts
+       (``.c`` / ``build`` / ``__pycache__`` / original source files).
 """
 
 import json
@@ -21,36 +24,29 @@ from typing import Any
 from Cython.Build import cythonize
 from setuptools import setup
 
-# 日志
+# Logger
 logger = logging.getLogger(__name__)
 
-# Cython 编译参数
+# Cython compilation directives
 COMPILER_DIRECTIVES: dict[str, Any] = {
     "language_level": 3,
     "always_allow_keywords": True,
 }
 
-# Cython 可编译的源文件后缀 (.pyx 为 Cython 源文件, .pyw 为 Python 窗口脚本)
+# Suffixes of source files that can be compiled.
+# ``.pyx`` is a Cython source file, ``.pyw`` is a Python window script.
 COMPILE_SUFFIXES: tuple[str, ...] = (".py", ".pyx", ".pyw")
 
 
-# ---------------------------------------------------------------------------
-# 配置
-# ---------------------------------------------------------------------------
 class Config:
-    """编译配置"""
-
-    source_dir: Path
-    target_dir: Path
-    skip_cp_dirs: list[str]
-    skip_dirs: list[str]
+    """Compilation configuration."""
 
     def __init__(
-        self,
-        source_dir: Path,
-        target_dir: Path,
-        skip_cp_dirs: list[str] | None = None,
-        skip_dirs: list[str] | None = None,
+            self,
+            source_dir: Path,
+            target_dir: Path,
+            skip_cp_dirs: list[str],
+            skip_dirs: list[str],
     ) -> None:
         self.source_dir = source_dir
         self.target_dir = target_dir
@@ -58,262 +54,280 @@ class Config:
         self.skip_dirs = skip_dirs or []
 
 
-def load_config(config_path: Path) -> Config:
-    """解析 JSON 配置文件并返回 Config 对象
+class Translation:
+    """Compile and encrypt Python source code into Cython extensions.
 
-    Args:
-        config_path: 配置文件路径
-
-    Returns:
-        Config 对象
-
-    Raises:
-        FileNotFoundError: 配置文件不存在
-        ValueError: 配置项缺失或无效
+    The class encapsulates the full compilation workflow: load the
+    configuration, copy the source directory, scan the files to compile,
+    compile them, and clean up the intermediate artifacts.
     """
-    if not config_path.is_file():
-        raise FileNotFoundError(f"配置文件不存在: {config_path}")
 
-    with open(config_path, "r", encoding="utf-8") as f:
-        params = json.load(f)
+    def __init__(self, config_path: str) -> None:
+        self.config_path = Path(config_path)
 
-    source_dir_str = params.get("source_dir")
-    if not source_dir_str:
-        raise ValueError("配置项 source_dir 缺失")
+    # ------------------------------------------------------------------
+    # Configuration
+    # ------------------------------------------------------------------
+    def load_config(self) -> Config:
+        """Parse a JSON configuration file and return a :class:`Config` object.
 
-    source_dir = Path(source_dir_str).resolve()
-    if not source_dir.is_dir():
-        raise ValueError(f"source_dir 不是有效目录: {source_dir}")
+        Returns:
+            A :class:`Config` object.
 
-    # 目标目录: 源目录名_时间戳, 位于源目录的父目录下
-    timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
-    target_dir = source_dir.parent / f"{source_dir.name}_{timestamp}"
+        Raises:
+            FileNotFoundError: If the configuration file does not exist.
+            ValueError: If a required configuration item is missing or invalid.
+        """
+        if not self.config_path.is_file():
+            raise FileNotFoundError(
+                f"Configuration file does not exist: {self.config_path}"
+            )
 
-    return Config(
-        source_dir=source_dir,
-        target_dir=target_dir,
-        skip_cp_dirs=params.get("skip_cp_dirs", []),
-        skip_dirs=params.get("skip_dirs", []),
-    )
+        with open(self.config_path, "r", encoding="utf-8") as f:
+            params = json.load(f)
 
+        source_dir_str = params.get("source_dir")
+        if not source_dir_str:
+            raise ValueError("Configuration item 'source_dir' is missing")
 
-# ---------------------------------------------------------------------------
-# 路径匹配工具
-# ---------------------------------------------------------------------------
-def _match_skip(rel_path: PurePosixPath, skip_list: list[str]) -> bool:
-    """判断相对路径是否命中 skip_list (命中自身或其父路径)
+        source_dir = Path(source_dir_str).resolve()
+        if not source_dir.is_dir():
+            raise ValueError(f"'source_dir' is not a valid directory: {source_dir}")
 
-    Args:
-        rel_path: 相对路径 (POSIX 风格)
-        skip_list: 跳过路径列表
+        # Target directory: source directory name + timestamp, located in the
+        # parent directory of the source directory.
+        timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
+        target_dir = source_dir.parent / f"{source_dir.name}_{timestamp}"
 
-    Returns:
-        True 表示应跳过
-    """
-    for pattern in skip_list:
-        base = PurePosixPath(pattern)
-        if rel_path == base or base in rel_path.parents:
-            return True
-    return False
-
-
-def _need_compile(rel_path: PurePosixPath, skip_dirs: list[str]) -> bool:
-    """判断文件是否需要编译
-
-    规则:
-        - 后缀在 COMPILE_SUFFIXES 中 (.py / .pyx / .pyw)
-        - 排除 __init__.py
-        - 排除 skip_dirs 中的路径
-
-    Args:
-        rel_path: 相对 target_dir 的文件路径
-        skip_dirs: 跳过目录列表
-
-    Returns:
-        True 表示需要编译
-    """
-    if rel_path.suffix not in COMPILE_SUFFIXES:
-        return False
-    if rel_path.name == "__init__.py":
-        return False
-    return not _match_skip(rel_path, skip_dirs)
-
-
-# ---------------------------------------------------------------------------
-# 2.1 复制
-# ---------------------------------------------------------------------------
-def copy_source_dir(config: Config) -> None:
-    """将 source_dir 复制到 target_dir, 跳过 skip_cp_dirs
-
-    Args:
-        config: 编译配置
-    """
-    # 如果目标目录已存在则清空
-    if config.target_dir.exists():
-        shutil.rmtree(config.target_dir)
-    config.target_dir.mkdir(parents=True)
-
-    for root, dirs, files in os.walk(config.source_dir):
-        # 计算相对路径
-        rel_root = PurePosixPath(os.path.relpath(root, config.source_dir))
-
-        # 过滤需跳过的子目录 (原地修改 dirs 影响 os.walk 遍历)
-        dirs[:] = [
-            d for d in dirs
-            if not _match_skip(rel_root / d, config.skip_cp_dirs)
-        ]
-
-        # 复制文件
-        for name in files:
-            file_rel = rel_root / name
-            if _match_skip(file_rel, config.skip_cp_dirs):
-                continue
-
-            src = Path(root) / name
-            dst = config.target_dir / file_rel
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dst)
-
-
-# ---------------------------------------------------------------------------
-# 2.2 扫描需编译文件
-# ---------------------------------------------------------------------------
-def find_compile_files(config: Config) -> list[str]:
-    """在 target_dir 中扫描需要编译的源文件 (.py / .pyx / .pyw)
-
-    Args:
-        config: 编译配置
-
-    Returns:
-        相对于 target_dir 的文件路径列表 (POSIX 风格, 如 "utils/helper.py")
-    """
-    result: list[str] = []
-
-    for root, dirs, files in os.walk(config.target_dir):
-        rel_root = PurePosixPath(os.path.relpath(root, config.target_dir))
-
-        # 过滤跳过的子目录
-        dirs[:] = [
-            d for d in dirs
-            if not _match_skip(rel_root / d, config.skip_dirs)
-        ]
-
-        # 收集需要编译的文件
-        for name in files:
-            file_rel = rel_root / name
-            if _need_compile(file_rel, config.skip_dirs):
-                result.append(str(file_rel))
-
-    return result
-
-
-# ---------------------------------------------------------------------------
-# 2.3 编译 + 清理
-# ---------------------------------------------------------------------------
-def compile_all(config: Config, py_files: list[str]) -> None:
-    """编译 target_dir 中所有需要编译的源文件
-
-    使用 os.chdir 切换到 target_dir 执行编译。
-    target_dir 是项目根目录 (无 __init__.py), Cython 不会添加包名前缀,
-    --inplace 直接将 .so 生成到对应子目录中。
-
-    Args:
-        config: 编译配置
-        py_files: 相对于 target_dir 的文件路径列表
-    """
-    origin_cwd = os.getcwd()
-
-    # 2.4 切换工作目录到 target_dir
-    os.chdir(config.target_dir)
-
-    try:
-        setup(
-            ext_modules=cythonize(
-                py_files,
-                quiet=True,
-                compiler_directives=COMPILER_DIRECTIVES,
-            ),
-            script_args=["build_ext", "--inplace"],
+        return Config(
+            source_dir=source_dir,
+            target_dir=target_dir,
+            skip_cp_dirs=params.get("skip_cp_dirs", []),
+            skip_dirs=params.get("skip_dirs", []),
         )
-    finally:
-        os.chdir(origin_cwd)
 
+    # ------------------------------------------------------------------
+    # Path matching utilities
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _match_skip(rel_path: PurePosixPath, skip_list: list[str]) -> bool:
+        """Check whether a relative path matches any entry in ``skip_list``.
 
-def cleanup(config: Config, py_files: list[str]) -> None:
-    """清理编译中间产物
+        A path matches if it equals an entry in ``skip_list`` or if any of
+        its parent directories is listed.
 
-    清理内容:
-        - .c 文件 (Cython 中间产物)
-        - 原始源文件 (已编译为 .so)
-        - target_dir 下的 build 目录
-        - 所有 __pycache__ 目录
+        Args:
+            rel_path: Relative path (POSIX style).
+            skip_list: List of paths to skip.
 
-    Args:
-        config: 编译配置
-        py_files: 已编译的相对路径文件列表
-    """
-    # 删除每个已编译文件对应的 .c 和源文件
-    for rel_path_str in py_files:
-        rel_path = Path(rel_path_str)
-        abs_path = config.target_dir / rel_path
+        Returns:
+            ``True`` if the path should be skipped, ``False`` otherwise.
+        """
+        for pattern in skip_list:
+            base = PurePosixPath(pattern)
+            if rel_path == base or base in rel_path.parents:
+                return True
+        return False
 
-        # 删除 .c 中间产物
-        c_file = abs_path.with_suffix(".c")
-        if c_file.is_file():
-            c_file.unlink()
+    @staticmethod
+    def _need_compile(rel_path: PurePosixPath, skip_dirs: list[str]) -> bool:
+        """Determine whether a file needs to be compiled.
 
-        # 删除原始源文件 (.py / .pyx / .pyw)
-        if abs_path.is_file():
-            abs_path.unlink()
+        Rules:
+            - The file suffix must be in ``COMPILE_SUFFIXES``
+              (``.py`` / ``.pyx`` / ``.pyw``).
+            - ``__init__.py`` files are excluded.
+            - Paths listed in ``skip_dirs`` are excluded.
 
-    # 删除 target_dir 下的 build 目录
-    # 使用 Path 的 "/" 运算符拼接, 在 Windows/Linux/macOS 上均跨平台安全
-    build_dir = config.target_dir / "build"
-    if build_dir.is_dir():
-        shutil.rmtree(build_dir)
+        Args:
+            rel_path: File path relative to ``target_dir``.
+            skip_dirs: List of directories to skip.
 
-    # 删除所有 __pycache__ 目录
-    for pycache in config.target_dir.rglob("__pycache__"):
-        if pycache.is_dir():
-            shutil.rmtree(pycache)
+        Returns:
+            ``True`` if the file needs to be compiled, ``False`` otherwise.
+        """
+        if rel_path.suffix not in COMPILE_SUFFIXES:
+            return False
+        if rel_path.name == "__init__.py":
+            return False
+        return not Translation._match_skip(rel_path, skip_dirs)
 
+    # ------------------------------------------------------------------
+    # Step 2.1 - Copy
+    # ------------------------------------------------------------------
+    def copy_source_dir(self, config: Config) -> None:
+        """Copy ``source_dir`` to ``target_dir``, skipping ``skip_cp_dirs``.
 
-# ---------------------------------------------------------------------------
-# 主流程
-# ---------------------------------------------------------------------------
-def run(config_path: str) -> None:
-    """执行完整的编译加密流程
+        Args:
+            config: The compilation configuration.
+        """
+        # Remove the target directory if it already exists.
+        if config.target_dir.exists():
+            shutil.rmtree(config.target_dir)
 
-    Args:
-        config_path: 配置文件路径
-    """
-    # 加载配置
-    config = load_config(Path(config_path))
-    logger.info("[1/4] 配置加载完成")
-    logger.info("      源目录: %s", config.source_dir)
-    logger.info("      目标目录: %s", config.target_dir)
+        # Ensure the parent directories exist.
+        config.target_dir.mkdir(parents=True)
 
-    # 2.1 复制
-    copy_source_dir(config)
-    logger.info("[2/4] 目录复制完成")
+        for root, dirs, files in os.walk(config.source_dir):
+            # Compute the relative path.
+            rel_root = PurePosixPath(os.path.relpath(root, config.source_dir))
 
-    # 2.2 扫描需编译文件
-    py_files = find_compile_files(config)
-    logger.info("[3/4] 扫描完成, 共 %d 个文件待编译", len(py_files))
-    for f in py_files:
-        logger.info("      - %s", f)
+            # Filter out subdirectories to skip (modifying ``dirs`` in place
+            # affects the ``os.walk`` traversal).
+            dirs[:] = [
+                d
+                for d in dirs
+                if not self._match_skip(rel_root / d, config.skip_cp_dirs)
+            ]
 
-    if not py_files:
-        logger.info("无需编译的文件")
-        return
+            # Copy files.
+            for name in files:
+                file_rel = rel_root / name
+                if self._match_skip(file_rel, config.skip_cp_dirs):
+                    continue
 
-    # 2.3 编译
-    logger.info("[4/4] 编译中...")
-    compile_all(config, py_files)
-    logger.info("      编译完成")
+                src = Path(root) / name
+                dst = config.target_dir / file_rel
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, dst)
 
-    # 2.4 清理中间产物
-    cleanup(config, py_files)
-    logger.info("      清理完成")
+    # ------------------------------------------------------------------
+    # Step 2.2 - Scan files to compile
+    # ------------------------------------------------------------------
+    def find_compile_files(self, config: Config) -> list[str]:
+        """Scan ``target_dir`` for source files that need to be compiled.
 
-    logger.info("完成!")
+        Args:
+            config: The compilation configuration.
+
+        Returns:
+            List of file paths relative to ``target_dir`` (POSIX style,
+            e.g. ``"utils/helper.py"``).
+        """
+        result: list[str] = []
+
+        for root, dirs, files in os.walk(config.target_dir):
+            rel_root = PurePosixPath(os.path.relpath(root, config.target_dir))
+
+            # Filter out subdirectories to skip.
+            dirs[:] = [
+                d
+                for d in dirs
+                if not self._match_skip(rel_root / d, config.skip_dirs)
+            ]
+
+            # Collect files that need to be compiled.
+            for name in files:
+                file_rel = rel_root / name
+                if self._need_compile(file_rel, config.skip_dirs):
+                    result.append(str(file_rel))
+
+        return result
+
+    # ------------------------------------------------------------------
+    # Step 2.3 - Compile + cleanup
+    # ------------------------------------------------------------------
+    @staticmethod
+    def compile_all(config: Config, py_files: list[str]) -> None:
+        """Compile all source files in ``target_dir`` that need to be compiled.
+
+        Uses ``os.chdir`` to switch to ``target_dir`` before compiling.
+        ``target_dir`` is the project root (no ``__init__.py``), so Cython
+        does not prepend a package name; ``--inplace`` places the generated
+        ``.so`` files directly into the corresponding subdirectories.
+
+        Args:
+            config: The compilation configuration.
+            py_files: List of file paths relative to ``target_dir``.
+        """
+        origin_cwd = os.getcwd()
+
+        # Switch the working directory to ``target_dir``.
+        os.chdir(config.target_dir)
+
+        try:
+            setup(
+                ext_modules=cythonize(
+                    module_list=py_files,
+                    quiet=True,
+                    compiler_directives=COMPILER_DIRECTIVES,
+                ),
+                script_args=["build_ext", "--inplace"],
+            )
+        finally:
+            os.chdir(origin_cwd)
+
+    @staticmethod
+    def cleanup(config: Config, py_files: list[str]) -> None:
+        """Remove intermediate build artifacts.
+
+        Cleanup includes:
+            - ``.c`` files (Cython intermediate artifacts).
+            - Original source files (already compiled into ``.so``).
+            - The ``build`` directory under ``target_dir``.
+            - All ``__pycache__`` directories.
+
+        Args:
+            config: The compilation configuration.
+            py_files: List of compiled file paths relative to ``target_dir``.
+        """
+        # Remove the ``.c`` file and the source file for each compiled file.
+        for rel_path_str in py_files:
+            rel_path = Path(rel_path_str)
+            abs_path = config.target_dir / rel_path
+
+            # Remove the ``.c`` intermediate file.
+            c_file = abs_path.with_suffix(".c")
+            if c_file.is_file():
+                c_file.unlink()
+
+            # Remove the original source file (``.py`` / ``.pyx`` / ``.pyw``).
+            if abs_path.is_file():
+                abs_path.unlink()
+
+        # Remove the ``build`` directory under ``target_dir``.
+        # Using Path's "/" operator to join paths is safe on all platforms.
+        build_dir = config.target_dir / "build"
+        if build_dir.is_dir():
+            shutil.rmtree(build_dir)
+
+        # Remove all ``__pycache__`` directories.
+        for pycache in config.target_dir.rglob("__pycache__"):
+            if pycache.is_dir():
+                shutil.rmtree(pycache)
+
+    # ------------------------------------------------------------------
+    # Main workflow
+    # ------------------------------------------------------------------
+    def run(self) -> None:
+        """Run the full compile-and-encrypt workflow."""
+        # Load the configuration.
+        config = self.load_config()
+        logger.info("[1/4] Configuration loaded")
+        logger.info("      Source directory: %s", config.source_dir)
+        logger.info("      Target directory: %s", config.target_dir)
+
+        # Step 2.1 - Copy.
+        self.copy_source_dir(config)
+        logger.info("[2/4] Directory copy complete")
+
+        # Step 2.2 - Scan files to compile.
+        py_files = self.find_compile_files(config)
+        logger.info("[3/4] Scan complete, %d files to compile", len(py_files))
+        for f in py_files:
+            logger.info("      - %s", f)
+
+        if not py_files:
+            logger.info("No files to compile")
+            return
+
+        # Step 2.3 - Compile.
+        logger.info("[4/4] Compiling...")
+        self.compile_all(config, py_files)
+        logger.info("      Compilation complete")
+
+        # Step 2.4 - Clean up intermediate artifacts.
+        self.cleanup(config, py_files)
+        logger.info("      Cleanup complete")
+
+        logger.info("Done!")
