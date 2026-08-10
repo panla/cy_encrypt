@@ -1,32 +1,30 @@
 [project]
 name = "cy-encrypt"
 dynamic = ["version"]
-description = "Use Cython Encrypt Source Code"
+description = "Use Cython to convert Python source code into DLL"
 readme = "README.md"
 requires-python = ">=3.12,<3.14"
 license = { text = "MIT" }
 authors = [
     { name = "panla", email = "pankla@163.com" }
 ]
-keywords = ["Cython", "DDL", "cy_encrypt", "CythonEncrypt"]
+keywords = ["Cython", "DLL", "cy_encrypt", "CythonEncrypt"]
 classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "License :: OSI Approved :: MIT License",
 ]
-# Dependencies installed into the local virtual environment during
-# development (uv sync will install these).
 dependencies = [
     "Cython>=3.1.0,<3.3.0",
     "setuptools>=80.0.0,<85.0.0",
 ]
 
-[project.scripts]
-cy_encrypt = "cy_encrypt.cli:main"
-
 [project.urls]
 Repository = "https://gitee.com/pankla/cy_encrypt.git"
+
+[project.scripts]
+cy_encrypt = "cy_encrypt.cli:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -36,6 +34,12 @@ build-backend = "hatchling.build"
 # Version is read dynamically from cy_encrypt/version.py (single source
 # of truth). Update the version there and it will propagate to the package.
 path = "cy_encrypt/version.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["cy_encrypt"]
+
+[tool.hatch.build.targets.sdist]
+include = ["cy_encrypt", "CHANGELOG.md", "LICENSE", "README.md"]
 
 [tool.uv]
 # When running `uv sync` during development:
@@ -53,9 +57,3 @@ default = true
 
 [tool.uv.sources]
 # Keep the default source configuration.
-
-[tool.hatch.build.targets.wheel]
-packages = ["cy_encrypt"]
-
-[tool.hatch.build.targets.sdist]
-include = ["cy_encrypt", "CHANGELOG.md", "LICENSE", "README.md"]

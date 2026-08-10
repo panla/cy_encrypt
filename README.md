@@ -2,9 +2,14 @@
 
 ## Introduction
 
-利用 Cython 把 Python 源代码(.py, .pyw, .pyx) 转换为动态链接库
+Use Cython to convert Python source code (.py, .pyw, .pyx) into dynamic link libraries
 
-以实现保护源代码的作用
+to achieve the purpose of protecting the source code
+
+## File
+
+- [LICENSE](./LICENSE)
+- [CHANGELOG](./CHANGELOG.md)
 
 ## Install
 
@@ -73,7 +78,11 @@ cp `source_dir` to `{source_dir}_{now}`
 
 Compile `.py` files to dynamically linked libraries (`.so`/`.pyd`), keeping the relative path unchanged
 
-## File
+## Test
 
-- [LICENSE](./LICENSE)
-- [CHANGELOG](./CHANGELOG.md)
+not install cy_encrypt
+
+```bash
+
+python -m cy_encrypt.cli --help
+```
